@@ -39,8 +39,9 @@
     }
     .cooldown {
       margin-top: 12px;
-      font-size: 0.95rem;
+      font-size: 1rem;
       color: #333;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -62,8 +63,9 @@
 
   <script>
     const unlockDate = new Date(2025, 7, 28, 0, 0, 0); // Aug 28, 2025 local
-    const values = ["-", "-", "-"];
     const cooldownMinutes = 30;
+    const maxRollsPerWindow = 3;
+    const values = ["-", "-", "-"];
     const el = id => document.getElementById(id);
 
     function rand1to9() {
@@ -73,10 +75,35 @@
       return values[0] !== "-" && values[0] === values[1] && values[1] === values[2];
     }
 
+    function loadState() {
+      const stored = localStorage.getItem("rollState");
+      if (stored) {
+        return JSON.parse(stored);
+      }
+      return { windowStart: null, rollsUsed: 0 };
+    }
+
+    function saveState(state) {
+      localStorage.setItem("rollState", JSON.stringify(state));
+    }
+
     function rollAll() {
+      const state = loadState();
       const now = new Date();
-      const nextAllowed = getNextAllowed();
-      if (now < nextAllowed) {
+
+      if (state.windowStart) {
+        const start = new Date(state.windowStart);
+        if (now - start >= cooldownMinutes * 60000) {
+          // reset window
+          state.windowStart = now.toISOString();
+          state.rollsUsed = 0;
+        }
+      } else {
+        state.windowStart = now.toISOString();
+        state.rollsUsed = 0;
+      }
+
+      if (state.rollsUsed >= maxRollsPerWindow) {
         updateCooldown();
         return;
       }
@@ -89,7 +116,6 @@
 
       // prevent triple before unlock date
       if (now < unlockDate && allEqual()) {
-        // force change last slot so no triple
         let avoid = values[2];
         let newNum = rand1to9();
         if (newNum === avoid) newNum = (avoid % 9) + 1;
@@ -102,6 +128,46 @@
         window.location.href = "prize.html";
       }
 
-      // set cooldown
-      const expire = new Date(now.getTime() + cooldownMinutes*60000);
-      localStorage.setItem("nextRollTime", ex
+      // increment roll count
+      state.rollsUsed += 1;
+      saveState(state);
+
+      updateCooldown();
+    }
+
+    function updateCooldown() {
+      const state = loadState();
+      const btn = el("rollBtn");
+      const msg = el("cooldownMsg");
+      const now = new Date();
+
+      if (!state.windowStart) {
+        btn.disabled = false;
+        msg.textContent = "You can roll now!";
+        return;
+      }
+
+      const start = new Date(state.windowStart);
+      if (now - start >= cooldownMinutes * 60000) {
+        btn.disabled = false;
+        msg.textContent = "You can roll now!";
+        return;
+      }
+
+      if (state.rollsUsed >= maxRollsPerWindow) {
+        const diffMs = cooldownMinutes*60000 - (now - start);
+        const mins = Math.floor(diffMs / 60000);
+        const secs = Math.floor((diffMs % 60000) / 1000);
+        btn.disabled = true;
+        msg.textContent = `No rolls left. Next window in ${mins}m ${secs}s.`;
+      } else {
+        btn.disabled = false;
+        msg.textContent = `${maxRollsPerWindow - state.rollsUsed} roll(s) left in this ${cooldownMinutes}-minute window.`;
+      }
+    }
+
+    setInterval(updateCooldown, 1000);
+    updateCooldown();
+  </script>
+</body>
+</html>
